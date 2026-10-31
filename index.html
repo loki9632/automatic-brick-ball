@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automatic Brick Ball Live</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: #080d1b;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+h1 { color: #42e8ff; }
+
+#stats {
+    display: flex;
+    justify-content: center;
+    gap: 25px;
+    flex-wrap: wrap;
+    margin: 15px;
+    font-size: 18px;
+}
+
+canvas {
+    display: block;
+    width: min(95vw, 800px);
+    height: auto;
+    margin: 15px auto;
+    background: #101a31;
+    border: 2px solid #42e8ff;
+    border-radius: 8px;
+}
+
+p { color: #b8c7e8; }
+</style>
+</head>
+
+<body>
+<h1>🧱 BRICK BALL LIVE</h1>
+
+<div id="stats">
+    <span>Score: <b id="score">0</b></span>
+    <span>Level: <b id="level">1</b></span>
+    <span>Bricks: <b id="bricks">0</b></span>
+</div>
+
+<canvas id="game" width="800" height="600"></canvas>
+
+<p>Automatic gameplay · Endless levels · AI paddle</p>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+let score = 0;
+let level = 1;
+let running = true;
+
+const ball = {
+    x: W / 2,
+    y: H - 100,
+    r: 9,
+    vx: 4,
+    vy: -5
+};
+
+const paddle = {
+    x: W / 2 - 65,
+    y: H - 35,
+    w: 130,
+    h: 12,
+    speed: 6
+};
+
+let bricks = [];
+
+function createBricks() {
+    bricks = [];
+
+    const rows = Math.min(4 + level, 9);
+    const cols = 10;
+    const gap = 7;
+    const margin = 25;
+    const bw = (W - 2 * margin - (cols - 1) * gap) / cols;
+    const bh = 22;
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            bricks.push({
+                x: margin + c * (bw + gap),
+                y: 55 + r * (bh + gap),
+                w: bw,
+                h: bh,
+                alive: true,
+                color: `hsl(${(r * 35 + c * 8) % 360}, 85%, 58%)`
+            });
+        }
+    }
+
+    document.getElementById("bricks").textContent = bricks.length;
+}
+
+function resetBall() {
+    ball.x = W / 2;
+    ball.y = H - 100;
+
+    const speed = Math.min(4 + level * 0.35, 8);
+    ball.vx = Math.random() < 0.5 ? -speed : speed;
+    ball.vy = -speed;
+}
+
+function update() {
+    if (!running) return;
+
+    // Automatic paddle tracks the ball.
+    const target = ball.x - paddle.w / 2;
+
+    if (paddle.x < target - 3) {
+        paddle.x += paddle.speed;
+    } else if (paddle.x > target + 3) {
+        paddle.x -= paddle.speed;
+    }
+
+    paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    // Side walls.
+    if (ball.x - ball.r <= 0 || ball.x + ball.r >= W) {
+        ball.vx *= -1;
+        ball.x = Math.max(ball.r, Math.min(W - ball.r, ball.x));
+    }
+
+    // Ceiling.
+    if (ball.y - ball.r <= 0) {
+        ball.vy = Math.abs(ball.vy);
+    }
+
+    // Paddle collision.
+    if (
+        ball.vy > 0 &&
+        ball.y + ball.r >= paddle.y &&
+        ball.y - ball.r <= paddle.y + paddle.h &&
+        ball.x >= paddle.x &&
+        ball.x <= paddle.x + paddle.w
+    ) {
+        const hit = (ball.x - (paddle.x + paddle.w / 2))
+                    / (paddle.w / 2);
+
+        const speed = Math.hypot(ball.vx, ball.vy);
+
+        ball.vx = hit * speed * 0.85;
+        ball.vy = -Math.sqrt(
+            Math.max(1, speed * speed - ball.vx * ball.vx)
+        );
+
+        ball.y = paddle.y - ball.r;
+    }
+
+    // Brick collisions.
+    for (const b of bricks) {
+        if (!b.alive) continue;
+
+        if (
+            ball.x + ball.r > b.x &&
+            ball.x - ball.r < b.x + b.w &&
+            ball.y + ball.r > b.y &&
+            ball.y - ball.r < b.y + b.h
+        ) {
+            b.alive = false;
+            ball.vy *= -1;
+            score += 10;
+
+            document.getElementById("score").textContent = score;
+            document.getElementById("bricks").textContent =
+                bricks.filter(x => x.alive).length;
+
+            break;
+        }
+    }
+
+    // Endless levels.
+    if (bricks.every(b => !b.alive)) {
+        level++;
+        document.getElementById("level").textContent = level;
+
+        createBricks();
+        resetBall();
+    }
+
+    // Automatically recover if the ball falls.
+    if (ball.y - ball.r > H) {
+        resetBall();
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Bricks.
+    for (const b of bricks) {
+        if (!b.alive) continue;
+
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+
+        ctx.strokeStyle = "rgba(255,255,255,0.3)";
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+    }
+
+    // Paddle.
+    ctx.fillStyle = "#42e8ff";
+    ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+
+    // Ball.
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "#42e8ff";
+    ctx.shadowBlur = 15;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+createBricks();
+loop();
+</script>
+</body>
+</html>
