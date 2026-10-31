@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Automatic Brick Ball Live</title>
+<title>AI Brick Ball - YouTube Live</title>
 
 <style>
-* { box-sizing: border-box; }
+* {
+    box-sizing: border-box;
+}
 
 body {
     margin: 0;
@@ -16,230 +18,1546 @@ body {
     text-align: center;
 }
 
-h1 { color: #42e8ff; }
+header {
+    padding: 15px;
+    background: #101a30;
+    border-bottom: 1px solid #243554;
+}
 
-#stats {
+h1 {
+    margin: 5px;
+    color: #47f5d0;
+    font-size: clamp(22px, 4vw, 34px);
+}
+
+.subtitle {
+    color: #9db0d0;
+    font-size: 13px;
+}
+
+.stats {
     display: flex;
     justify-content: center;
-    gap: 25px;
+    gap: 12px;
     flex-wrap: wrap;
-    margin: 15px;
-    font-size: 18px;
+    padding: 15px 8px;
+}
+
+.stat {
+    min-width: 105px;
+    padding: 12px 18px;
+    border: 1px solid #263c5e;
+    border-radius: 10px;
+    background: #111c32;
+}
+
+.stat span {
+    display: block;
+    color: #9db0d0;
+    font-size: 12px;
+    margin-bottom: 5px;
+}
+
+.stat strong {
+    font-size: 22px;
+    color: #47f5d0;
+}
+
+.game-container {
+    width: min(96vw, 900px);
+    margin: 0 auto;
+    overflow: hidden;
+    border: 1px solid #263c5e;
+    border-radius: 12px;
+    background: #0b1325;
 }
 
 canvas {
     display: block;
-    width: min(95vw, 800px);
+    width: 100%;
     height: auto;
-    margin: 15px auto;
-    background: #101a31;
-    border: 2px solid #42e8ff;
-    border-radius: 8px;
+    aspect-ratio: 4 / 3;
 }
 
-p { color: #b8c7e8; }
+.controls {
+    padding: 14px;
+}
+
+button {
+    padding: 11px 18px;
+    margin: 4px;
+    border: 0;
+    border-radius: 7px;
+    background: #47f5d0;
+    color: #06151c;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    filter: brightness(1.1);
+}
+
+#status {
+    margin: 8px;
+    color: #47f5d0;
+    font-size: 14px;
+}
+
+footer {
+    padding: 15px;
+    color: #7284a5;
+    font-size: 12px;
+}
 </style>
 </head>
 
 <body>
-<h1>🧱 BRICK BALL LIVE</h1>
 
-<div id="stats">
-    <span>Score: <b id="score">0</b></span>
-    <span>Level: <b id="level">1</b></span>
-    <span>Bricks: <b id="bricks">0</b></span>
+<header>
+    <h1>AI BRICK BALL</h1>
+    <div class="subtitle">
+        AUTOMATIC GAMEPLAY • SMART PADDLE • LIVE STREAM READY
+    </div>
+</header>
+
+<div class="stats">
+    <div class="stat">
+        <span>SCORE</span>
+        <strong id="score">0</strong>
+    </div>
+
+    <div class="stat">
+        <span>BRICKS LEFT</span>
+        <strong id="remaining">0</strong>
+    </div>
+
+    <div class="stat">
+        <span>LEVEL</span>
+        <strong id="level">1</strong>
+    </div>
+
+    <div class="stat">
+        <span>AI STATUS</span>
+        <strong id="aiStatus">ON</strong>
+    </div>
 </div>
 
-<canvas id="game" width="800" height="600"></canvas>
+<div class="game-container">
+    <canvas id="game" width="800" height="600"></canvas>
+</div>
 
-<p>Automatic gameplay · Endless levels · AI paddle</p>
+<div class="controls">
+    <button id="pauseButton">Pause</button>
+    <button id="restartButton">Restart Game</button>
+    <button id="speedButton">Speed: Normal</button>
+
+    <div id="status">Initializing AI...</div>
+</div>
+
+<footer>
+    Automatic Brick Ball Game • Powered by JavaScript
+</footer>
 
 <script>
+"use strict";
+
+// ======================================================
+// 1. CANVAS SETUP
+// ======================================================
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 const W = canvas.width;
 const H = canvas.height;
 
+const scoreElement = document.getElementById("score");
+const remainingElement = document.getElementById("remaining");
+const levelElement = document.getElementById("level");
+const aiStatusElement = document.getElementById("aiStatus");
+const statusElement = document.getElementById("status");
+
+const pauseButton = document.getElementById("pauseButton");
+const restartButton = document.getElementById("restartButton");
+const speedButton = document.getElementById("speedButton");
+
+
+// ======================================================
+// 2. GAME SETTINGS
+// ======================================================
+
+const CONFIG = {
+    rows: 7,
+    columns: 10,
+
+    brickWidth: 66,
+    brickHeight: 19,
+
+    brickGapX: 8,
+    brickGapY: 9,
+
+    brickTop: 75,
+
+    paddleWidth: 110,
+    paddleHeight: 13,
+
+    paddleSpeed: 8,
+
+    ballRadius: 7,
+
+    baseBallSpeed: 4.2,
+
+    maxBallSpeed: 7.5,
+
+    wallPadding: 12
+};
+
+
+// ======================================================
+// 3. GAME STATE
+// ======================================================
+
 let score = 0;
 let level = 1;
-let running = true;
-
-const ball = {
-    x: W / 2,
-    y: H - 100,
-    r: 9,
-    vx: 4,
-    vy: -5
-};
-
-const paddle = {
-    x: W / 2 - 65,
-    y: H - 35,
-    w: 130,
-    h: 12,
-    speed: 6
-};
 
 let bricks = [];
 
+let paused = false;
+let gameOver = false;
+let speedMode = 1;
+
+let lastTime = 0;
+let animationId = null;
+
+const keys = {
+    left: false,
+    right: false
+};
+
+const paddle = {
+    x: W / 2 - CONFIG.paddleWidth / 2,
+    y: H - 45,
+
+    w: CONFIG.paddleWidth,
+    h: CONFIG.paddleHeight,
+
+    vx: 0
+};
+
+const ball = {
+    x: W / 2,
+    y: H - 65,
+
+    r: CONFIG.ballRadius,
+
+    vx: 2,
+    vy: -CONFIG.baseBallSpeed,
+
+    speed: CONFIG.baseBallSpeed,
+
+    launched: true
+};
+
+
+// ======================================================
+// 4. CREATE BRICKS
+// ======================================================
+
 function createBricks() {
+
     bricks = [];
 
-    const rows = Math.min(4 + level, 9);
-    const cols = 10;
-    const gap = 7;
-    const margin = 25;
-    const bw = (W - 2 * margin - (cols - 1) * gap) / cols;
-    const bh = 22;
+    const totalWidth =
+        CONFIG.columns * CONFIG.brickWidth +
+        (CONFIG.columns - 1) * CONFIG.brickGapX;
 
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-            bricks.push({
-                x: margin + c * (bw + gap),
-                y: 55 + r * (bh + gap),
-                w: bw,
-                h: bh,
+    const startX = (W - totalWidth) / 2;
+
+    for (let row = 0; row < CONFIG.rows; row++) {
+
+        for (
+            let col = 0;
+            col < CONFIG.columns;
+            col++
+        ) {
+
+            const brick = {
+                x: startX +
+                    col * (
+                        CONFIG.brickWidth +
+                        CONFIG.brickGapX
+                    ),
+
+                y: CONFIG.brickTop +
+                    row * (
+                        CONFIG.brickHeight +
+                        CONFIG.brickGapY
+                    ),
+
+                w: CONFIG.brickWidth,
+                h: CONFIG.brickHeight,
+
+                row: row,
+                col: col,
+
                 alive: true,
-                color: `hsl(${(r * 35 + c * 8) % 360}, 85%, 58%)`
-            });
+
+                color: [
+                    "#ff5370",
+                    "#ff8a4c",
+                    "#ffd166",
+                    "#48e0a4",
+                    "#39c5ff",
+                    "#8b80ff",
+                    "#ec78e8"
+                ][row]
+            };
+
+            bricks.push(brick);
         }
     }
 
-    document.getElementById("bricks").textContent = bricks.length;
+    updateBrickCounter();
 }
+
+
+// ======================================================
+// 5. UPDATE UI
+// ======================================================
+
+function updateBrickCounter() {
+
+    const aliveCount = bricks.filter(
+        brick => brick.alive
+    ).length;
+
+    remainingElement.textContent = aliveCount;
+    scoreElement.textContent = score;
+    levelElement.textContent = level;
+
+    return aliveCount;
+}
+
+
+// ======================================================
+// 6. RESET BALL
+// ======================================================
 
 function resetBall() {
-    ball.x = W / 2;
-    ball.y = H - 100;
 
-    const speed = Math.min(4 + level * 0.35, 8);
-    ball.vx = Math.random() < 0.5 ? -speed : speed;
-    ball.vy = -speed;
+    ball.x = W / 2;
+    ball.y = H - 65;
+
+    ball.speed = CONFIG.baseBallSpeed;
+
+    ball.vx = ball.speed * 0.35;
+    ball.vy = -Math.sqrt(
+        ball.speed * ball.speed -
+        ball.vx * ball.vx
+    );
+
+    ball.launched = true;
 }
 
-function update() {
-    if (!running) return;
 
-    // Automatic paddle tracks the ball.
-    const target = ball.x - paddle.w / 2;
+// ======================================================
+// 7. FIND THE BEST TARGET BRICK
+// ======================================================
 
-    if (paddle.x < target - 3) {
-        paddle.x += paddle.speed;
-    } else if (paddle.x > target + 3) {
-        paddle.x -= paddle.speed;
+function findTargetBrick() {
+
+    const aliveBricks = bricks.filter(
+        brick => brick.alive
+    );
+
+    if (aliveBricks.length === 0) {
+        return null;
     }
 
-    paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+    /*
+      Target a brick near the ball's horizontal position.
 
-    ball.x += ball.vx;
-    ball.y += ball.vy;
+      Bricks that are lower down are preferred slightly
+      because they are generally easier to reach.
+    */
 
-    // Side walls.
-    if (ball.x - ball.r <= 0 || ball.x + ball.r >= W) {
-        ball.vx *= -1;
-        ball.x = Math.max(ball.r, Math.min(W - ball.r, ball.x));
-    }
+    let bestBrick = null;
+    let bestCost = Infinity;
 
-    // Ceiling.
-    if (ball.y - ball.r <= 0) {
-        ball.vy = Math.abs(ball.vy);
-    }
+    for (const brick of aliveBricks) {
 
-    // Paddle collision.
-    if (
-        ball.vy > 0 &&
-        ball.y + ball.r >= paddle.y &&
-        ball.y - ball.r <= paddle.y + paddle.h &&
-        ball.x >= paddle.x &&
-        ball.x <= paddle.x + paddle.w
-    ) {
-        const hit = (ball.x - (paddle.x + paddle.w / 2))
-                    / (paddle.w / 2);
+        const brickCenterX =
+            brick.x + brick.w / 2;
 
-        const speed = Math.hypot(ball.vx, ball.vy);
+        const brickCenterY =
+            brick.y + brick.h / 2;
 
-        ball.vx = hit * speed * 0.85;
-        ball.vy = -Math.sqrt(
-            Math.max(1, speed * speed - ball.vx * ball.vx)
-        );
+        const horizontalDistance =
+            Math.abs(brickCenterX - ball.x);
 
-        ball.y = paddle.y - ball.r;
-    }
+        const verticalDistance =
+            Math.abs(brickCenterY - ball.y);
 
-    // Brick collisions.
-    for (const b of bricks) {
-        if (!b.alive) continue;
+        const cost =
+            horizontalDistance +
+            verticalDistance * 0.22;
 
-        if (
-            ball.x + ball.r > b.x &&
-            ball.x - ball.r < b.x + b.w &&
-            ball.y + ball.r > b.y &&
-            ball.y - ball.r < b.y + b.h
-        ) {
-            b.alive = false;
-            ball.vy *= -1;
-            score += 10;
+        if (cost < bestCost) {
 
-            document.getElementById("score").textContent = score;
-            document.getElementById("bricks").textContent =
-                bricks.filter(x => x.alive).length;
-
-            break;
+            bestCost = cost;
+            bestBrick = brick;
         }
     }
 
-    // Endless levels.
-    if (bricks.every(b => !b.alive)) {
-        level++;
-        document.getElementById("level").textContent = level;
+    return bestBrick;
+}
 
-        createBricks();
-        resetBall();
+
+// ======================================================
+// 8. AI PADDLE CONTROL
+// ======================================================
+
+function updateAI() {
+
+    const targetBrick = findTargetBrick();
+
+    let targetX = ball.x;
+
+    /*
+      If the ball is moving downward, predict where
+      it will reach the paddle.
+    */
+
+    if (ball.vy > 0) {
+
+        const timeToPaddle =
+            (paddle.y - ball.y) / ball.vy;
+
+        targetX =
+            ball.x + ball.vx * timeToPaddle;
+
+        /*
+          Account for left and right wall bounces.
+        */
+
+        const left = CONFIG.wallPadding + ball.r;
+        const right = W - CONFIG.wallPadding - ball.r;
+
+        const range = right - left;
+
+        if (range > 0) {
+
+            let relativeX = targetX - left;
+
+            relativeX =
+                ((relativeX % (2 * range)) +
+                2 * range) % (2 * range);
+
+            if (relativeX > range) {
+                relativeX = 2 * range - relativeX;
+            }
+
+            targetX = left + relativeX;
+        }
+
+    } else if (targetBrick) {
+
+        /*
+          While the ball travels upward, move toward
+          the center of the remaining brick area.
+
+          This prepares the paddle for the next bounce.
+        */
+
+        targetX =
+            targetBrick.x + targetBrick.w / 2;
     }
 
-    // Automatically recover if the ball falls.
-    if (ball.y - ball.r > H) {
+    /*
+      The paddle follows the predicted target.
+    */
+
+    const desiredPaddleX =
+        targetX - paddle.w / 2;
+
+    const difference =
+        desiredPaddleX - paddle.x;
+
+    const movement =
+        Math.max(
+            -CONFIG.paddleSpeed,
+            Math.min(
+                CONFIG.paddleSpeed,
+                difference
+            )
+        );
+
+    paddle.x += movement;
+
+    paddle.x = Math.max(
+        CONFIG.wallPadding,
+        Math.min(
+            W - CONFIG.wallPadding - paddle.w,
+            paddle.x
+        )
+    );
+}
+
+
+// ======================================================
+// 9. WALL COLLISIONS
+// ======================================================
+
+function handleWallCollisions() {
+
+    const leftWall = CONFIG.wallPadding + ball.r;
+    const rightWall = W - CONFIG.wallPadding - ball.r;
+
+    if (ball.x <= leftWall && ball.vx < 0) {
+
+        ball.x = leftWall;
+        ball.vx = Math.abs(ball.vx);
+    }
+
+    if (ball.x >= rightWall && ball.vx > 0) {
+
+        ball.x = rightWall;
+        ball.vx = -Math.abs(ball.vx);
+    }
+
+    if (ball.y <= ball.r && ball.vy < 0) {
+
+        ball.y = ball.r;
+        ball.vy = Math.abs(ball.vy);
+    }
+}
+
+
+// ======================================================
+// 10. SWEPT COLLISION DETECTION
+// ======================================================
+
+/*
+  The ball can travel across a brick between frames.
+
+  This function checks the path between its previous
+  and current positions instead of checking only
+  the final position.
+*/
+
+function sweptRectangleCollision(
+    oldX,
+    oldY,
+    newX,
+    newY,
+    left,
+    top,
+    right,
+    bottom
+) {
+
+    const dx = newX - oldX;
+    const dy = newY - oldY;
+
+    let enter = 0;
+    let exit = 1;
+
+    let normalX = 0;
+    let normalY = 0;
+
+    // Horizontal intersection.
+
+    if (Math.abs(dx) < 0.000001) {
+
+        if (oldX < left || oldX > right) {
+            return null;
+        }
+
+    } else {
+
+        let t1 = (left - oldX) / dx;
+        let t2 = (right - oldX) / dx;
+
+        let nearX = -1;
+        let farX = 1;
+
+        if (t1 > t2) {
+
+            [t1, t2] = [t2, t1];
+
+            nearX = 1;
+            farX = -1;
+        }
+
+        if (t1 > enter) {
+
+            enter = t1;
+
+            normalX = nearX;
+            normalY = 0;
+        }
+
+        exit = Math.min(exit, t2);
+
+        if (enter > exit) {
+            return null;
+        }
+    }
+
+    // Vertical intersection.
+
+    if (Math.abs(dy) < 0.000001) {
+
+        if (oldY < top || oldY > bottom) {
+            return null;
+        }
+
+    } else {
+
+        let t1 = (top - oldY) / dy;
+        let t2 = (bottom - oldY) / dy;
+
+        let nearY = -1;
+        let farY = 1;
+
+        if (t1 > t2) {
+
+            [t1, t2] = [t2, t1];
+
+            nearY = 1;
+            farY = -1;
+        }
+
+        if (t1 > enter) {
+
+            enter = t1;
+
+            normalX = 0;
+            normalY = nearY;
+        }
+
+        exit = Math.min(exit, t2);
+
+        if (enter > exit) {
+            return null;
+        }
+    }
+
+    if (enter < 0 || enter > 1 || exit < 0) {
+        return null;
+    }
+
+    return {
+        time: enter,
+        normalX: normalX,
+        normalY: normalY
+    };
+}
+
+
+// ======================================================
+// 11. BRICK COLLISIONS
+// ======================================================
+
+function handleBrickCollisions(
+    oldX,
+    oldY,
+    newX,
+    newY
+) {
+
+    let firstHit = null;
+    let firstBrick = null;
+
+    for (const brick of bricks) {
+
+        if (!brick.alive) {
+            continue;
+        }
+
+        /*
+          Expand the brick by the ball radius.
+
+          The moving ball can then be treated as a point.
+        */
+
+        const collision = sweptRectangleCollision(
+            oldX,
+            oldY,
+            newX,
+            newY,
+
+            brick.x - ball.r,
+            brick.y - ball.r,
+
+            brick.x + brick.w + ball.r,
+            brick.y + brick.h + ball.r
+        );
+
+        if (!collision) {
+            continue;
+        }
+
+        if (
+            !firstHit ||
+            collision.time < firstHit.time
+        ) {
+
+            firstHit = collision;
+            firstBrick = brick;
+        }
+    }
+
+    if (!firstHit || !firstBrick) {
+        return;
+    }
+
+    /*
+      Destroy only the first brick encountered along
+      the ball's path.
+    */
+
+    firstBrick.alive = false;
+
+    score += 10 * level;
+
+    /*
+      Move the ball to the point of impact.
+    */
+
+    ball.x =
+        oldX + (newX - oldX) * firstHit.time;
+
+    ball.y =
+        oldY + (newY - oldY) * firstHit.time;
+
+    /*
+      Reverse the correct velocity component.
+    */
+
+    if (firstHit.normalX !== 0) {
+        ball.vx = -ball.vx;
+    }
+
+    if (firstHit.normalY !== 0) {
+        ball.vy = -ball.vy;
+    }
+
+    /*
+      Move the ball a tiny distance away from the
+      collision surface to avoid repeated collisions.
+    */
+
+    ball.x += firstHit.normalX * 0.1;
+    ball.y += firstHit.normalY * 0.1;
+
+    /*
+      Update the speed carefully as the game progresses.
+    */
+
+    const currentSpeed = Math.sqrt(
+        ball.vx * ball.vx +
+        ball.vy * ball.vy
+    );
+
+    ball.speed = Math.min(
+        CONFIG.maxBallSpeed,
+        Math.max(
+            currentSpeed,
+            CONFIG.baseBallSpeed + level * 0.12
+        )
+    );
+
+    // Preserve the direction while applying the speed.
+
+    const length = Math.sqrt(
+        ball.vx * ball.vx +
+        ball.vy * ball.vy
+    );
+
+    if (length > 0) {
+
+        ball.vx = ball.vx / length * ball.speed;
+        ball.vy = ball.vy / length * ball.speed;
+    }
+
+    updateBrickCounter();
+
+    /*
+      Check whether all bricks have been cleared.
+    */
+
+    if (updateBrickCounter() === 0) {
+
+        level++;
+
+        statusElement.textContent =
+            "Level cleared! Starting level " +
+            level + "...";
+
+        createBricks();
+
         resetBall();
     }
 }
 
-function draw() {
-    ctx.clearRect(0, 0, W, H);
 
-    // Bricks.
-    for (const b of bricks) {
-        if (!b.alive) continue;
+// ======================================================
+// 12. PADDLE COLLISION AND SMART AIMING
+// ======================================================
 
-        ctx.fillStyle = b.color;
-        ctx.fillRect(b.x, b.y, b.w, b.h);
+function handlePaddleCollision(oldY) {
 
-        ctx.strokeStyle = "rgba(255,255,255,0.3)";
-        ctx.strokeRect(b.x, b.y, b.w, b.h);
+    const ballBottom = ball.y + ball.r;
+
+    const paddleTop = paddle.y;
+    const paddleBottom = paddle.y + paddle.h;
+
+    const horizontalOverlap =
+        ball.x + ball.r >= paddle.x &&
+        ball.x - ball.r <= paddle.x + paddle.w;
+
+    const crossedPaddle =
+        oldY + ball.r <= paddleTop &&
+        ballBottom >= paddleTop;
+
+    if (
+        ball.vy > 0 &&
+        horizontalOverlap &&
+        crossedPaddle
+    ) {
+
+        /*
+          Place the ball just above the paddle.
+        */
+
+        ball.y = paddleTop - ball.r - 0.1;
+
+        /*
+          Calculate where the ball landed on the paddle.
+
+          -1 = far left
+           0 = center
+          +1 = far right
+        */
+
+        const paddleCenter =
+            paddle.x + paddle.w / 2;
+
+        const hitPosition =
+            (ball.x - paddleCenter) /
+            (paddle.w / 2);
+
+        /*
+          Find a brick to target.
+        */
+
+        const targetBrick = findTargetBrick();
+
+        let targetOffset = 0;
+
+        if (targetBrick) {
+
+            const targetCenter =
+                targetBrick.x + targetBrick.w / 2;
+
+            targetOffset =
+                (targetCenter - ball.x) / (W / 2);
+
+            targetOffset = Math.max(
+                -1,
+                Math.min(1, targetOffset)
+            );
+        }
+
+        /*
+          Combine paddle position and target direction.
+
+          The AI tries to hit the remaining bricks
+          rather than bouncing vertically forever.
+        */
+
+        let angleFactor =
+            hitPosition * 0.65 +
+            targetOffset * 0.85;
+
+        angleFactor = Math.max(
+            -0.85,
+            Math.min(0.85, angleFactor)
+        );
+
+        /*
+          Calculate the new launch angle.
+
+          Keep a minimum upward velocity to avoid
+          nearly horizontal ball movement.
+        */
+
+        const maxAngle = Math.PI * 0.38;
+
+        const angle = angleFactor * maxAngle;
+
+        ball.speed = Math.min(
+            CONFIG.maxBallSpeed,
+            Math.max(
+                CONFIG.baseBallSpeed,
+                ball.speed + 0.04
+            )
+        );
+
+        ball.vx = ball.speed * Math.sin(angle);
+
+        ball.vy = -Math.abs(
+            ball.speed * Math.cos(angle)
+        );
+
+        /*
+          Guarantee a useful upward component.
+        */
+
+        if (Math.abs(ball.vy) < ball.speed * 0.35) {
+
+            ball.vy = -ball.speed * 0.35;
+
+            const horizontalMagnitude = Math.sqrt(
+                ball.speed * ball.speed -
+                ball.vy * ball.vy
+            );
+
+            ball.vx =
+                Math.sign(ball.vx || 1) *
+                horizontalMagnitude;
+        }
+
+        statusElement.textContent =
+            "AI targeting remaining bricks...";
+    }
+}
+
+
+// ======================================================
+// 13. AUTOMATIC BALL RECOVERY
+// ======================================================
+
+function recoverBall() {
+
+    /*
+      The game must not stop simply because the ball
+      misses the paddle.
+
+      Resetting the ball prevents endless waiting.
+    */
+
+    if (ball.y - ball.r > H) {
+
+        statusElement.textContent =
+            "AI recovering ball automatically...";
+
+        resetBall();
+    }
+}
+
+
+// ======================================================
+// 14. UPDATE GAME PHYSICS
+// ======================================================
+
+function update() {
+
+    if (paused || gameOver) {
+        return;
     }
 
-    // Paddle.
-    ctx.fillStyle = "#42e8ff";
-    ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+    /*
+      Step 1: AI paddle movement.
+    */
 
-    // Ball.
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.shadowColor = "#42e8ff";
-    ctx.shadowBlur = 15;
-    ctx.fill();
+    updateAI();
+
+    /*
+      Step 2: Save the old ball position.
+    */
+
+    const oldX = ball.x;
+    const oldY = ball.y;
+
+    /*
+      Step 3: Calculate the proposed new position.
+    */
+
+    const newX = oldX + ball.vx * speedMode;
+    const newY = oldY + ball.vy * speedMode;
+
+    /*
+      Step 4: Move the ball.
+    */
+
+    ball.x = newX;
+    ball.y = newY;
+
+    /*
+      Step 5: Resolve wall collisions.
+
+      The movement is small enough that the normal
+      wall collision checks are sufficient.
+    */
+
+    handleWallCollisions();
+
+    /*
+      Step 6: Check the brick path.
+
+      Use the old and proposed positions so that
+      fast movement doesn't skip bricks.
+    */
+
+    handleBrickCollisions(
+        oldX,
+        oldY,
+        newX,
+        newY
+    );
+
+    /*
+      Step 7: Check the paddle collision.
+
+      If the ball was repositioned by a brick collision,
+      it can still collide with the paddle only when
+      moving downward.
+    */
+
+    handlePaddleCollision(oldY);
+
+    /*
+      Step 8: Recover missed balls automatically.
+    */
+
+    recoverBall();
+
+    /*
+      Step 9: Keep the score display synchronized.
+    */
+
+    scoreElement.textContent = score;
+    levelElement.textContent = level;
+
+    aiStatusElement.textContent = "ON";
+}
+
+
+// ======================================================
+// 15. DRAW BACKGROUND
+// ======================================================
+
+function drawBackground() {
+
+    const gradient = ctx.createLinearGradient(
+        0, 0, W, H
+    );
+
+    gradient.addColorStop(0, "#0a1125");
+    gradient.addColorStop(1, "#111b34");
+
+    ctx.fillStyle = gradient;
+
+    ctx.fillRect(0, 0, W, H);
+
+    /*
+      Draw a subtle grid.
+    */
+
+    ctx.strokeStyle = "rgba(100,150,220,0.06)";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < W; x += 40) {
+
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+    }
+
+    for (let y = 0; y < H; y += 40) {
+
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
+    }
+}
+
+
+// ======================================================
+// 16. DRAW BRICKS
+// ======================================================
+
+function drawBricks() {
+
+    for (const brick of bricks) {
+
+        if (!brick.alive) {
+            continue;
+        }
+
+        /*
+          Brick shadow.
+        */
+
+        ctx.shadowColor = brick.color;
+        ctx.shadowBlur = 8;
+
+        ctx.fillStyle = brick.color;
+
+        ctx.beginPath();
+
+        ctx.roundRect(
+            brick.x,
+            brick.y,
+            brick.w,
+            brick.h,
+            5
+        );
+
+        ctx.fill();
+
+        /*
+          Highlight at the top.
+        */
+
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle =
+            "rgba(255,255,255,0.25)";
+
+        ctx.fillRect(
+            brick.x + 5,
+            brick.y + 3,
+            brick.w - 10,
+            2
+        );
+    }
+
     ctx.shadowBlur = 0;
 }
 
-function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
+
+// ======================================================
+// 17. DRAW PADDLE
+// ======================================================
+
+function drawPaddle() {
+
+    const gradient = ctx.createLinearGradient(
+        paddle.x,
+        paddle.y,
+        paddle.x,
+        paddle.y + paddle.h
+    );
+
+    gradient.addColorStop(0, "#a1fff0");
+    gradient.addColorStop(1, "#23cbb5");
+
+    ctx.shadowColor = "#47f5d0";
+    ctx.shadowBlur = 18;
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.roundRect(
+        paddle.x,
+        paddle.y,
+        paddle.w,
+        paddle.h,
+        7
+    );
+
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
 }
 
-createBricks();
-loop();
+
+// ======================================================
+// 18. DRAW BALL
+// ======================================================
+
+function drawBall() {
+
+    /*
+      Ball trail.
+    */
+
+    ctx.globalAlpha = 0.18;
+
+    ctx.fillStyle = "#47f5d0";
+
+    ctx.beginPath();
+
+    ctx.arc(
+        ball.x - ball.vx * 2,
+        ball.y - ball.vy * 2,
+        ball.r * 1.4,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+
+    /*
+      Main ball.
+    */
+
+    ctx.shadowColor = "#47f5d0";
+    ctx.shadowBlur = 18;
+
+    const gradient = ctx.createRadialGradient(
+        ball.x - 2,
+        ball.y - 2,
+        1,
+        ball.x,
+        ball.y,
+        ball.r
+    );
+
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.4, "#aafff0");
+    gradient.addColorStop(1, "#24d8ba");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(
+        ball.x,
+        ball.y,
+        ball.r,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ======================================================
+// 19. DRAW GAME INFORMATION
+// ======================================================
+
+function drawGameInfo() {
+
+    ctx.fillStyle = "#91a6c9";
+    ctx.font = "13px Arial";
+
+    ctx.textAlign = "left";
+
+    ctx.fillText(
+        "AI CONTROL ACTIVE",
+        18,
+        H - 15
+    );
+
+    ctx.textAlign = "right";
+
+    ctx.fillText(
+        "LEVEL " + level,
+        W - 18,
+        H - 15
+    );
+
+    ctx.textAlign = "left";
+}
+
+
+// ======================================================
+// 20. DRAW PAUSE / GAME OVER
+// ======================================================
+
+function drawOverlay(title, subtitle) {
+
+    ctx.fillStyle = "rgba(3,8,20,0.78)";
+
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "#47f5d0";
+
+    ctx.font = "bold 36px Arial";
+
+    ctx.fillText(
+        title,
+        W / 2,
+        H / 2 - 15
+    );
+
+    ctx.fillStyle = "#ffffff";
+
+    ctx.font = "16px Arial";
+
+    ctx.fillText(
+        subtitle,
+        W / 2,
+        H / 2 + 25
+    );
+
+    ctx.textAlign = "left";
+}
+
+
+// ======================================================
+// 21. RENDER FRAME
+// ======================================================
+
+function draw() {
+
+    drawBackground();
+
+    drawBricks();
+
+    drawPaddle();
+
+    drawBall();
+
+    drawGameInfo();
+
+    if (paused) {
+
+        drawOverlay(
+            "PAUSED",
+            "Press Resume to continue"
+        );
+    }
+}
+
+
+// ======================================================
+// 22. MAIN GAME LOOP
+// ======================================================
+
+function gameLoop(timestamp) {
+
+    if (!lastTime) {
+        lastTime = timestamp;
+    }
+
+    /*
+      Limit large frame delays to prevent sudden
+      jumps after switching browser tabs.
+    */
+
+    const delta = Math.min(
+        (timestamp - lastTime) / 16.667,
+        2
+    );
+
+    lastTime = timestamp;
+
+    /*
+      Use small physics steps for more reliable
+      collision handling.
+    */
+
+    if (!paused && !gameOver) {
+
+        const steps = Math.max(
+            1,
+            Math.ceil(delta * speedMode)
+        );
+
+        for (let i = 0; i < steps; i++) {
+            update();
+        }
+    }
+
+    draw();
+
+    animationId = requestAnimationFrame(gameLoop);
+}
+
+
+// ======================================================
+// 23. PAUSE / RESUME
+// ======================================================
+
+pauseButton.addEventListener(
+    "click",
+    function () {
+
+        paused = !paused;
+
+        pauseButton.textContent =
+            paused ? "Resume" : "Pause";
+
+        statusElement.textContent =
+            paused
+                ? "Game paused"
+                : "AI running automatically";
+
+        lastTime = 0;
+    }
+);
+
+
+// ======================================================
+// 24. RESTART GAME
+// ======================================================
+
+function restartGame() {
+
+    score = 0;
+    level = 1;
+
+    paused = false;
+    gameOver = false;
+
+    paddle.x = W / 2 - paddle.w / 2;
+
+    createBricks();
+
+    resetBall();
+
+    pauseButton.textContent = "Pause";
+
+    statusElement.textContent =
+        "AI running automatically";
+
+    lastTime = 0;
+}
+
+restartButton.addEventListener(
+    "click",
+    restartGame
+);
+
+
+// ======================================================
+// 25. SPEED CONTROL
+// ======================================================
+
+speedButton.addEventListener(
+    "click",
+    function () {
+
+        if (speedMode === 1) {
+
+            speedMode = 1.5;
+
+            speedButton.textContent =
+                "Speed: Fast";
+
+        } else if (speedMode === 1.5) {
+
+            speedMode = 0.75;
+
+            speedButton.textContent =
+                "Speed: Slow";
+
+        } else {
+
+            speedMode = 1;
+
+            speedButton.textContent =
+                "Speed: Normal";
+        }
+    }
+);
+
+
+// ======================================================
+// 26. OPTIONAL MANUAL CONTROLS
+// ======================================================
+
+/*
+  These controls are optional.
+
+  The AI remains responsible for paddle movement.
+  Pressing the arrow keys temporarily moves the paddle.
+*/
+
+window.addEventListener(
+    "keydown",
+    function (event) {
+
+        if (
+            event.key === "ArrowLeft" ||
+            event.key === "ArrowRight"
+        ) {
+            event.preventDefault();
+        }
+
+        if (event.key === "ArrowLeft") {
+            keys.left = true;
+        }
+
+        if (event.key === "ArrowRight") {
+            keys.right = true;
+        }
+
+        if (
+            event.code === "Space" &&
+            !event.repeat
+        ) {
+            paused = !paused;
+
+            pauseButton.textContent =
+                paused ? "Resume" : "Pause";
+
+            lastTime = 0;
+        }
+    }
+);
+
+window.addEventListener(
+    "keyup",
+    function (event) {
+
+        if (event.key === "ArrowLeft") {
+            keys.left = false;
+        }
+
+        if (event.key === "ArrowRight") {
+            keys.right = false;
+        }
+    }
+);
+
+
+// ======================================================
+// 27. INITIALIZE GAME
+// ======================================================
+
+function initializeGame() {
+
+    createBricks();
+
+    resetBall();
+
+    statusElement.textContent =
+        "AI running automatically";
+
+    scoreElement.textContent = score;
+    levelElement.textContent = level;
+
+    aiStatusElement.textContent = "ON";
+
+    if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+    }
+
+    lastTime = 0;
+
+    animationId = requestAnimationFrame(gameLoop);
+}
+
+initializeGame();
+
 </script>
+
 </body>
 </html>
