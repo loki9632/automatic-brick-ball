@@ -125,11 +125,9 @@ def youtube_broadcast():
 
     params = {
         "part": "id,snippet",
-        "mine": "true",
         "broadcastStatus": "active",
         "broadcastType": "all"
     }
-
     response = requests.get(
         "https://www.googleapis.com/youtube/v3/liveBroadcasts",
         headers=headers,
@@ -183,10 +181,9 @@ def youtube_chat():
         headers=headers,
         params={
             "part": "id,snippet",
-            "mine": "true",
             "broadcastStatus": "active",
             "broadcastType": "all"
-        },
+    },
         timeout=30
     )
 
