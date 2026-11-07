@@ -153,6 +153,12 @@ footer {
     <button id="speedButton">Speed: Normal</button>
 
     <div id="status">Initializing AI...</div>
+    <div id="chatStatus" style="color:#9db0d0;font-size:12px;margin-top:6px">
+        YouTube chat: connecting...
+    </div>
+    <div id="powerStatus" style="color:#ffd166;font-size:12px;margin-top:4px">
+        Viewer powers: ready
+    </div>
 </div>
 
 <footer>
@@ -181,6 +187,20 @@ const statusElement = document.getElementById("status");
 const pauseButton = document.getElementById("pauseButton");
 const restartButton = document.getElementById("restartButton");
 const speedButton = document.getElementById("speedButton");
+const chatStatusElement = document.getElementById("chatStatus");
+const powerStatusElement = document.getElementById("powerStatus");
+
+// The game page polls the backend. Keep this URL pointed at your Hostless app.
+const COMMANDS_URL = "https://brick-ball-chat.hostless.app/youtube/commands";
+let chatPolling = false;
+let chatPollTimer = null;
+let chatRequestInProgress = false;
+
+let powerSpeedFactor = 1;
+let bigPaddleTimer = null;
+let shieldCharges = 0;
+let laserShots = [];
+let lastPowerMessage = "Viewer powers: ready";
 
 
 // ======================================================
@@ -222,6 +242,7 @@ let score = 0;
 let level = 1;
 
 let bricks = [];
+let aiTargetBrick = null;
 
 let paused = false;
 let gameOver = false;
@@ -267,6 +288,7 @@ const ball = {
 function createBricks() {
 
     bricks = [];
+    aiTargetBrick = null;
 
     const totalWidth =
         CONFIG.columns * CONFIG.brickWidth +
@@ -372,47 +394,27 @@ function findTargetBrick() {
     );
 
     if (aliveBricks.length === 0) {
+        aiTargetBrick = null;
         return null;
     }
 
-    /*
-      Target a brick near the ball's horizontal position.
-
-      Bricks that are lower down are preferred slightly
-      because they are generally easier to reach.
-    */
-
-    let bestBrick = null;
-    let bestCost = Infinity;
-
-    for (const brick of aliveBricks) {
-
-        const brickCenterX =
-            brick.x + brick.w / 2;
-
-        const brickCenterY =
-            brick.y + brick.h / 2;
-
-        const horizontalDistance =
-            Math.abs(brickCenterX - ball.x);
-
-        const verticalDistance =
-            Math.abs(brickCenterY - ball.y);
-
-        const cost =
-            horizontalDistance +
-            verticalDistance * 0.22;
-
-        if (cost < bestCost) {
-
-            bestCost = cost;
-            bestBrick = brick;
-        }
+    // Keep the selected target until it is destroyed.
+    // Then randomly choose another live brick from any row/column.
+    if (
+        aiTargetBrick &&
+        aiTargetBrick.alive &&
+        aliveBricks.includes(aiTargetBrick)
+    ) {
+        return aiTargetBrick;
     }
 
-    return bestBrick;
-}
+    const randomIndex = Math.floor(
+        Math.random() * aliveBricks.length
+    );
 
+    aiTargetBrick = aliveBricks[randomIndex];
+    return aiTargetBrick;
+}
 
 // ======================================================
 // 8. AI PADDLE CONTROL
@@ -720,6 +722,10 @@ function handleBrickCollisions(
 
     firstBrick.alive = false;
 
+    if (firstBrick === aiTargetBrick) {
+        aiTargetBrick = null;
+    }
+
     score += 10 * level;
 
     /*
@@ -960,6 +966,188 @@ function recoverBall() {
 
 
 // ======================================================
+// VIEWER POWERS
+// ======================================================
+
+function showPowerMessage(message) {
+    lastPowerMessage = message;
+    powerStatusElement.textContent = message;
+}
+
+function activateBigPaddle() {
+    paddle.w = Math.min(190, CONFIG.paddleWidth * 1.65);
+    paddle.x = Math.max(
+        CONFIG.wallPadding,
+        Math.min(W - CONFIG.wallPadding - paddle.w, paddle.x)
+    );
+
+    if (bigPaddleTimer) clearTimeout(bigPaddleTimer);
+    bigPaddleTimer = setTimeout(() => {
+        paddle.w = CONFIG.paddleWidth;
+        paddle.x = Math.max(
+            CONFIG.wallPadding,
+            Math.min(W - CONFIG.wallPadding - paddle.w, paddle.x)
+        );
+        showPowerMessage("Big paddle expired");
+        bigPaddleTimer = null;
+    }, 12000);
+
+    showPowerMessage("BIG PADDLE active for 12 seconds");
+}
+
+function activateSlow() {
+    powerSpeedFactor = 0.60;
+    showPowerMessage("SLOW active for 8 seconds");
+
+    setTimeout(() => {
+        powerSpeedFactor = 1;
+        showPowerMessage("Slow effect expired");
+    }, 8000);
+}
+
+function activateShield() {
+    shieldCharges = Math.min(shieldCharges + 1, 3);
+    showPowerMessage("SHIELD ready: " + shieldCharges + " save(s)");
+}
+
+function activateClearRow() {
+    // Clear the lowest occupied row first.
+    for (let row = CONFIG.rows - 1; row >= 0; row--) {
+        const rowBricks = bricks.filter(b => b.alive && b.row === row);
+        if (rowBricks.length) {
+            rowBricks.forEach(b => {
+                b.alive = false;
+                score += 10 * level;
+            });
+            if (aiTargetBrick && !aiTargetBrick.alive) {
+                aiTargetBrick = null;
+            }
+            updateBrickCounter();
+            showPowerMessage("CLEAR ROW: removed " + rowBricks.length + " bricks");
+            if (updateBrickCounter() === 0) {
+                level++;
+                createBricks();
+                resetBall();
+                statusElement.textContent = "Level cleared! Starting level " + level + "...";
+            }
+            return;
+        }
+    }
+    showPowerMessage("CLEAR ROW: no bricks left");
+}
+
+function activateLaser() {
+    // Fire a pair of upward-moving shots from the paddle.
+    const center = paddle.x + paddle.w / 2;
+    laserShots.push(
+        { x: center - 22, y: paddle.y - 4, speed: 8 },
+        { x: center + 22, y: paddle.y - 4, speed: 8 }
+    );
+    showPowerMessage("LASER fired");
+}
+
+function updateLaserShots() {
+    for (let i = laserShots.length - 1; i >= 0; i--) {
+        const shot = laserShots[i];
+        shot.y -= shot.speed;
+
+        let hit = false;
+        for (const brick of bricks) {
+            if (
+                brick.alive &&
+                shot.x >= brick.x &&
+                shot.x <= brick.x + brick.w &&
+                shot.y >= brick.y &&
+                shot.y <= brick.y + brick.h
+            ) {
+                brick.alive = false;
+                score += 10 * level;
+                hit = true;
+                break;
+            }
+        }
+
+        if (hit || shot.y < 0) laserShots.splice(i, 1);
+    }
+
+    updateBrickCounter();
+}
+
+function drawLaserShots() {
+    ctx.save();
+    ctx.fillStyle = "#ff4dff";
+    ctx.shadowColor = "#ff4dff";
+    ctx.shadowBlur = 12;
+    for (const shot of laserShots) {
+        ctx.fillRect(shot.x - 2, shot.y - 9, 4, 13);
+    }
+    ctx.restore();
+}
+
+function applyViewerCommand(command) {
+    switch (command) {
+        case "!laser":
+            activateLaser();
+            break;
+        case "!bigpaddle":
+            activateBigPaddle();
+            break;
+        case "!slow":
+            activateSlow();
+            break;
+        case "!shield":
+            activateShield();
+            break;
+        case "!clearrow":
+            activateClearRow();
+            break;
+        case "!multiball":
+            // Multiball needs a multi-ball physics refactor; don't pretend it works.
+            showPowerMessage("MULTIBALL received — feature not implemented yet");
+            break;
+        default:
+            break;
+    }
+}
+
+// Poll once per response interval. This endpoint uses a shared in-memory cursor,
+// so run only one game tab while testing.
+async function pollYouTubeCommands() {
+    if (chatRequestInProgress) return;
+    chatRequestInProgress = true;
+
+    try {
+        const response = await fetch(COMMANDS_URL, { method: "GET", cache: "no-store" });
+        if (!response.ok) {
+            throw new Error("Backend returned HTTP " + response.status);
+        }
+
+        const data = await response.json();
+        if (data.status !== "ok" || !Array.isArray(data.commands)) {
+            throw new Error("Unexpected command response");
+        }
+
+        chatStatusElement.textContent =
+            "YouTube chat: connected • polling " +
+            (data.polling_interval_ms || 1000) + " ms";
+
+        for (const item of data.commands) {
+            if (item && item.type === "free" && typeof item.command === "string") {
+                applyViewerCommand(item.command);
+            }
+        }
+
+        const delay = Math.max(900, Number(data.polling_interval_ms) || 1000);
+        chatPollTimer = setTimeout(pollYouTubeCommands, delay);
+    } catch (error) {
+        chatStatusElement.textContent = "YouTube chat: connection error — " + error.message;
+        chatPollTimer = setTimeout(pollYouTubeCommands, 5000);
+    } finally {
+        chatRequestInProgress = false;
+    }
+}
+
+// ======================================================
 // 14. UPDATE GAME PHYSICS
 // ======================================================
 
@@ -986,8 +1174,8 @@ function update() {
       Step 3: Calculate the proposed new position.
     */
 
-    const newX = oldX + ball.vx * speedMode;
-    const newY = oldY + ball.vy * speedMode;
+    const newX = oldX + ball.vx * speedMode * powerSpeedFactor;
+    const newY = oldY + ball.vy * speedMode * powerSpeedFactor;
 
     /*
       Step 4: Move the ball.
@@ -1323,6 +1511,7 @@ function draw() {
     drawPaddle();
 
     drawBall();
+    drawLaserShots();
 
     drawGameInfo();
 
@@ -1416,7 +1605,15 @@ function restartGame() {
     paused = false;
     gameOver = false;
 
+    paddle.w = CONFIG.paddleWidth;
     paddle.x = W / 2 - paddle.w / 2;
+    powerSpeedFactor = 1;
+    shieldCharges = 0;
+    laserShots = [];
+    if (bigPaddleTimer) {
+        clearTimeout(bigPaddleTimer);
+        bigPaddleTimer = null;
+    }
 
     createBricks();
 
@@ -1556,6 +1753,7 @@ function initializeGame() {
 }
 
 initializeGame();
+pollYouTubeCommands();
 
 </script>
 
