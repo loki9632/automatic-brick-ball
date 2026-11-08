@@ -399,6 +399,45 @@ def youtube_chat():
     })
 
 
+# Paid-event power mapping.
+# Thresholds are configurable in INR. Highest matching tier wins.
+SUPERCHAT_TIERS_INR = [
+    (200.0, "shield"),
+    (100.0, "clearrow"),
+    (50.0, "multiball"),
+    (20.0, "laser"),
+]
+
+
+def get_superchat_power(snippet):
+    """Return a game power only for a genuine YouTube Super Chat event."""
+    details = snippet.get("superChatDetails") or {}
+    currency = (details.get("currency") or "").upper()
+    amount_micros = details.get("amountMicros")
+
+    try:
+        amount = int(amount_micros) / 1_000_000
+    except (TypeError, ValueError):
+        amount = None
+
+    # Never compare amounts across currencies. Configure another currency
+    # explicitly before assigning it a paid power.
+    power = None
+    if amount is not None and currency == "INR":
+        for minimum, candidate in SUPERCHAT_TIERS_INR:
+            if amount >= minimum:
+                power = candidate
+                break
+
+    return {
+        "amount": amount,
+        "currency": currency or None,
+        "amount_display": details.get("amountDisplay"),
+        "tier": details.get("tier"),
+        "power": power,
+    }
+
+
 # --------------------------------------------------
 # GET NEW GAME COMMANDS
 # --------------------------------------------------
@@ -496,8 +535,45 @@ def youtube_commands():
         snippet = item.get("snippet", {})
         author = item.get("authorDetails", {})
 
-        # Only normal text messages are free commands.
-        if snippet.get("type") != "textMessageEvent":
+        event_type = snippet.get("type")
+
+        # Paid powers are created only from YouTube's structured event
+        # types, never from text typed by a viewer.
+        if event_type == "superChatEvent":
+            paid = get_superchat_power(snippet)
+            commands.append({
+                "id": item.get("id"),
+                "author": author.get("displayName"),
+                "command": paid["power"],
+                "type": "superchat",
+                "amount": paid["amount"],
+                "currency": paid["currency"],
+                "amount_display": paid["amount_display"],
+                "tier": paid["tier"],
+                "verified_event": True
+            })
+            continue
+
+        # Super Stickers are genuine paid events too, but this initial
+        # mapping does not assign them a power automatically.
+        if event_type == "superStickerEvent":
+            sticker = snippet.get("superStickerDetails") or {}
+            commands.append({
+                "id": item.get("id"),
+                "author": author.get("displayName"),
+                "command": None,
+                "type": "supersticker",
+                "amount": (
+                    int(sticker.get("amountMicros", 0)) / 1_000_000
+                ),
+                "currency": sticker.get("currency"),
+                "amount_display": sticker.get("amountDisplay"),
+                "verified_event": True
+            })
+            continue
+
+        # Only normal text messages are eligible for free commands.
+        if event_type != "textMessageEvent":
             continue
 
         command = (
@@ -507,12 +583,12 @@ def youtube_commands():
         )
 
         if command in GAME_COMMANDS:
-
             commands.append({
                 "id": item.get("id"),
                 "author": author.get("displayName"),
                 "command": command,
-                "type": "free"
+                "type": "free",
+                "verified_event": False
             })
 
     # Save cursor for the next request.
