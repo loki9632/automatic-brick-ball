@@ -200,6 +200,7 @@ let powerSpeedFactor = 1;
 let bigPaddleTimer = null;
 let shieldCharges = 0;
 let laserShots = [];
+let slowPowerTimer = null;
 let lastPowerMessage = "Viewer powers: ready";
 
 
@@ -279,6 +280,9 @@ const ball = {
 
     launched: true
 };
+
+// All active balls. The original `ball` remains the AI reference ball.
+let balls = [ball];
 
 
 // ======================================================
@@ -366,22 +370,17 @@ function updateBrickCounter() {
 // 6. RESET BALL
 // ======================================================
 
-function resetBall() {
-
-    ball.x = W / 2;
-    ball.y = H - 65;
-
-    ball.speed = CONFIG.baseBallSpeed;
-
-    ball.vx = ball.speed * 0.35;
-    ball.vy = -Math.sqrt(
-        ball.speed * ball.speed -
-        ball.vx * ball.vx
+function resetBall(targetBall = ball) {
+    targetBall.x = W / 2;
+    targetBall.y = H - 65;
+    targetBall.speed = CONFIG.baseBallSpeed;
+    targetBall.vx = targetBall.speed * 0.35;
+    targetBall.vy = -Math.sqrt(
+        targetBall.speed * targetBall.speed -
+        targetBall.vx * targetBall.vx
     );
-
-    ball.launched = true;
+    targetBall.launched = true;
 }
-
 
 // ======================================================
 // 7. FIND THE BEST TARGET BRICK
@@ -422,29 +421,33 @@ function findTargetBrick() {
 
 function updateAI() {
 
+    if (balls.length && balls[0] !== ball) {
+        // Keep the original ball as the AI reference whenever possible.
+    }
+    const aiBall = balls[0] || ball;
     const targetBrick = findTargetBrick();
 
-    let targetX = ball.x;
+    let targetX = aiBall.x;
 
     /*
       If the ball is moving downward, predict where
       it will reach the paddle.
     */
 
-    if (ball.vy > 0) {
+    if (aiBall.vy > 0) {
 
         const timeToPaddle =
-            (paddle.y - ball.y) / ball.vy;
+            (paddle.y - aiBall.y) / aiBall.vy;
 
         targetX =
-            ball.x + ball.vx * timeToPaddle;
+            aiBall.x + aiBall.vx * timeToPaddle;
 
         /*
           Account for left and right wall bounces.
         */
 
-        const left = CONFIG.wallPadding + ball.r;
-        const right = W - CONFIG.wallPadding - ball.r;
+        const left = CONFIG.wallPadding + aiBall.r;
+        const right = W - CONFIG.wallPadding - aiBall.r;
 
         const range = right - left;
 
@@ -511,27 +514,27 @@ function updateAI() {
 // 9. WALL COLLISIONS
 // ======================================================
 
-function handleWallCollisions() {
+function handleWallCollisions(activeBall = ball) {
 
-    const leftWall = CONFIG.wallPadding + ball.r;
-    const rightWall = W - CONFIG.wallPadding - ball.r;
+    const leftWall = CONFIG.wallPadding + activeBall.r;
+    const rightWall = W - CONFIG.wallPadding - activeBall.r;
 
-    if (ball.x <= leftWall && ball.vx < 0) {
+    if (activeBall.x <= leftWall && activeBall.vx < 0) {
 
-        ball.x = leftWall;
-        ball.vx = Math.abs(ball.vx);
+        activeBall.x = leftWall;
+        activeBall.vx = Math.abs(activeBall.vx);
     }
 
-    if (ball.x >= rightWall && ball.vx > 0) {
+    if (activeBall.x >= rightWall && activeBall.vx > 0) {
 
-        ball.x = rightWall;
-        ball.vx = -Math.abs(ball.vx);
+        activeBall.x = rightWall;
+        activeBall.vx = -Math.abs(activeBall.vx);
     }
 
-    if (ball.y <= ball.r && ball.vy < 0) {
+    if (activeBall.y <= activeBall.r && activeBall.vy < 0) {
 
-        ball.y = ball.r;
-        ball.vy = Math.abs(ball.vy);
+        activeBall.y = activeBall.r;
+        activeBall.vy = Math.abs(activeBall.vy);
     }
 }
 
@@ -666,7 +669,8 @@ function handleBrickCollisions(
     oldX,
     oldY,
     newX,
-    newY
+    newY,
+    activeBall = ball
 ) {
 
     let firstHit = null;
@@ -690,11 +694,11 @@ function handleBrickCollisions(
             newX,
             newY,
 
-            brick.x - ball.r,
-            brick.y - ball.r,
+            brick.x - activeBall.r,
+            brick.y - activeBall.r,
 
-            brick.x + brick.w + ball.r,
-            brick.y + brick.h + ball.r
+            brick.x + brick.w + activeBall.r,
+            brick.y + brick.h + activeBall.r
         );
 
         if (!collision) {
@@ -732,10 +736,10 @@ function handleBrickCollisions(
       Move the ball to the point of impact.
     */
 
-    ball.x =
+    activeBall.x =
         oldX + (newX - oldX) * firstHit.time;
 
-    ball.y =
+    activeBall.y =
         oldY + (newY - oldY) * firstHit.time;
 
     /*
@@ -743,11 +747,11 @@ function handleBrickCollisions(
     */
 
     if (firstHit.normalX !== 0) {
-        ball.vx = -ball.vx;
+        activeBall.vx = -activeBall.vx;
     }
 
     if (firstHit.normalY !== 0) {
-        ball.vy = -ball.vy;
+        activeBall.vy = -activeBall.vy;
     }
 
     /*
@@ -755,19 +759,19 @@ function handleBrickCollisions(
       collision surface to avoid repeated collisions.
     */
 
-    ball.x += firstHit.normalX * 0.1;
-    ball.y += firstHit.normalY * 0.1;
+    activeBall.x += firstHit.normalX * 0.1;
+    activeBall.y += firstHit.normalY * 0.1;
 
     /*
       Update the speed carefully as the game progresses.
     */
 
     const currentSpeed = Math.sqrt(
-        ball.vx * ball.vx +
-        ball.vy * ball.vy
+        activeBall.vx * activeBall.vx +
+        activeBall.vy * activeBall.vy
     );
 
-    ball.speed = Math.min(
+    activeBall.speed = Math.min(
         CONFIG.maxBallSpeed,
         Math.max(
             currentSpeed,
@@ -778,14 +782,14 @@ function handleBrickCollisions(
     // Preserve the direction while applying the speed.
 
     const length = Math.sqrt(
-        ball.vx * ball.vx +
-        ball.vy * ball.vy
+        activeBall.vx * activeBall.vx +
+        activeBall.vy * activeBall.vy
     );
 
     if (length > 0) {
 
-        ball.vx = ball.vx / length * ball.speed;
-        ball.vy = ball.vy / length * ball.speed;
+        activeBall.vx = activeBall.vx / length * activeBall.speed;
+        activeBall.vy = activeBall.vy / length * activeBall.speed;
     }
 
     updateBrickCounter();
@@ -794,18 +798,7 @@ function handleBrickCollisions(
       Check whether all bricks have been cleared.
     */
 
-    if (updateBrickCounter() === 0) {
-
-        level++;
-
-        statusElement.textContent =
-            "Level cleared! Starting level " +
-            level + "...";
-
-        createBricks();
-
-        resetBall();
-    }
+    advanceLevelIfCleared();
 }
 
 
@@ -813,23 +806,23 @@ function handleBrickCollisions(
 // 12. PADDLE COLLISION AND SMART AIMING
 // ======================================================
 
-function handlePaddleCollision(oldY) {
+function handlePaddleCollision(oldY, activeBall = ball) {
 
-    const ballBottom = ball.y + ball.r;
+    const ballBottom = activeBall.y + activeBall.r;
 
     const paddleTop = paddle.y;
     const paddleBottom = paddle.y + paddle.h;
 
     const horizontalOverlap =
-        ball.x + ball.r >= paddle.x &&
-        ball.x - ball.r <= paddle.x + paddle.w;
+        activeBall.x + activeBall.r >= paddle.x &&
+        activeBall.x - activeBall.r <= paddle.x + paddle.w;
 
     const crossedPaddle =
-        oldY + ball.r <= paddleTop &&
+        oldY + activeBall.r <= paddleTop &&
         ballBottom >= paddleTop;
 
     if (
-        ball.vy > 0 &&
+        activeBall.vy > 0 &&
         horizontalOverlap &&
         crossedPaddle
     ) {
@@ -838,7 +831,7 @@ function handlePaddleCollision(oldY) {
           Place the ball just above the paddle.
         */
 
-        ball.y = paddleTop - ball.r - 0.1;
+        activeBall.y = paddleTop - activeBall.r - 0.1;
 
         /*
           Calculate where the ball landed on the paddle.
@@ -852,7 +845,7 @@ function handlePaddleCollision(oldY) {
             paddle.x + paddle.w / 2;
 
         const hitPosition =
-            (ball.x - paddleCenter) /
+            (activeBall.x - paddleCenter) /
             (paddle.w / 2);
 
         /*
@@ -869,7 +862,7 @@ function handlePaddleCollision(oldY) {
                 targetBrick.x + targetBrick.w / 2;
 
             targetOffset =
-                (targetCenter - ball.x) / (W / 2);
+                (targetCenter - activeBall.x) / (W / 2);
 
             targetOffset = Math.max(
                 -1,
@@ -904,35 +897,35 @@ function handlePaddleCollision(oldY) {
 
         const angle = angleFactor * maxAngle;
 
-        ball.speed = Math.min(
+        activeBall.speed = Math.min(
             CONFIG.maxBallSpeed,
             Math.max(
                 CONFIG.baseBallSpeed,
-                ball.speed + 0.04
+                activeBall.speed + 0.04
             )
         );
 
-        ball.vx = ball.speed * Math.sin(angle);
+        activeBall.vx = activeBall.speed * Math.sin(angle);
 
-        ball.vy = -Math.abs(
-            ball.speed * Math.cos(angle)
+        activeBall.vy = -Math.abs(
+            activeBall.speed * Math.cos(angle)
         );
 
         /*
           Guarantee a useful upward component.
         */
 
-        if (Math.abs(ball.vy) < ball.speed * 0.35) {
+        if (Math.abs(activeBall.vy) < activeBall.speed * 0.35) {
 
-            ball.vy = -ball.speed * 0.35;
+            activeBall.vy = -activeBall.speed * 0.35;
 
             const horizontalMagnitude = Math.sqrt(
-                ball.speed * ball.speed -
-                ball.vy * ball.vy
+                activeBall.speed * activeBall.speed -
+                activeBall.vy * activeBall.vy
             );
 
-            ball.vx =
-                Math.sign(ball.vx || 1) *
+            activeBall.vx =
+                Math.sign(activeBall.vx || 1) *
                 horizontalMagnitude;
         }
 
@@ -946,24 +939,42 @@ function handlePaddleCollision(oldY) {
 // 13. AUTOMATIC BALL RECOVERY
 // ======================================================
 
-function recoverBall() {
+function recoverBall(activeBall = ball) {
+    if (activeBall.y - activeBall.r > H) {
+        if (shieldCharges > 0) {
+            shieldCharges--;
+            showPowerMessage("SHIELD saved a ball • " + shieldCharges + " save(s) left");
+            resetBall(activeBall);
+            return;
+        }
 
-    /*
-      The game must not stop simply because the ball
-      misses the paddle.
+        if (balls.length > 1) {
+            const index = balls.indexOf(activeBall);
+            if (index !== -1) balls.splice(index, 1);
+            showPowerMessage("A ball was lost • " + balls.length + " ball(s) remain");
+            return;
+        }
 
-      Resetting the ball prevents endless waiting.
-    */
-
-    if (ball.y - ball.r > H) {
-
-        statusElement.textContent =
-            "AI recovering ball automatically...";
-
-        resetBall();
+        // Keep the automatic game running when its final ball is lost.
+        showPowerMessage("AI recovered the final ball");
+        resetBall(activeBall);
     }
 }
 
+
+function advanceLevelIfCleared() {
+    if (bricks.some(brick => brick.alive)) return;
+    level++;
+    createBricks();
+    laserShots = [];
+
+    // Preserve every active ball when advancing to the next level.
+    if (balls.length === 0) balls.push(ball);
+    for (const activeBall of balls) resetBall(activeBall);
+
+    statusElement.textContent = "Level cleared! Starting level " + level + "...";
+    updateBrickCounter();
+}
 
 // ======================================================
 // VIEWER POWERS
@@ -997,12 +1008,41 @@ function activateBigPaddle() {
 
 function activateSlow() {
     powerSpeedFactor = 0.60;
+    if (slowPowerTimer) clearTimeout(slowPowerTimer);
     showPowerMessage("SLOW active for 8 seconds");
-
-    setTimeout(() => {
+    slowPowerTimer = setTimeout(() => {
         powerSpeedFactor = 1;
+        slowPowerTimer = null;
         showPowerMessage("Slow effect expired");
     }, 8000);
+}
+
+function activateMultiball() {
+    const maximumBalls = 5;
+    if (balls.length >= maximumBalls) {
+        showPowerMessage("MULTIBALL: maximum of " + maximumBalls + " balls already active");
+        return;
+    }
+
+    const source = balls[0] || ball;
+    const available = maximumBalls - balls.length;
+    const spawnCount = Math.min(2, available);
+
+    for (let i = 0; i < spawnCount; i++) {
+        const angle = (i === 0 ? -0.48 : 0.48);
+        const speed = Math.max(CONFIG.baseBallSpeed, source.speed);
+        const clone = {
+            x: source.x + (i === 0 ? -10 : 10),
+            y: source.y,
+            r: source.r,
+            vx: speed * Math.sin(angle),
+            vy: -Math.abs(speed * Math.cos(angle)),
+            speed: speed,
+            launched: true
+        };
+        balls.push(clone);
+    }
+    showPowerMessage("MULTIBALL active • " + balls.length + " balls in play");
 }
 
 function activateShield() {
@@ -1024,12 +1064,7 @@ function activateClearRow() {
             }
             updateBrickCounter();
             showPowerMessage("CLEAR ROW: removed " + rowBricks.length + " bricks");
-            if (updateBrickCounter() === 0) {
-                level++;
-                createBricks();
-                resetBall();
-                statusElement.textContent = "Level cleared! Starting level " + level + "...";
-            }
+            advanceLevelIfCleared();
             return;
         }
     }
@@ -1071,6 +1106,7 @@ function updateLaserShots() {
     }
 
     updateBrickCounter();
+    advanceLevelIfCleared();
 }
 
 function drawLaserShots() {
@@ -1102,12 +1138,24 @@ function applyViewerCommand(command) {
             activateClearRow();
             break;
         case "!multiball":
-            // Multiball needs a multi-ball physics refactor; don't pretend it works.
-            showPowerMessage("MULTIBALL received — feature not implemented yet");
+            activateMultiball();
             break;
         default:
             break;
     }
+}
+
+function applyPaidEvent(item) {
+    if (!item || item.type !== "superchat" || item.verified_event !== true) return;
+    if (!item.command) {
+        showPowerMessage("Super Chat received (" + (item.amount_display || "below power threshold") + ") • no power assigned");
+        return;
+    }
+    const paidPower = String(item.command).toLowerCase();
+    const allowed = new Set(["laser", "bigpaddle", "slow", "shield", "clearrow", "multiball"]);
+    if (!allowed.has(paidPower)) return;
+    applyViewerCommand("!" + paidPower);
+    showPowerMessage("SUPER CHAT " + (item.amount_display || "") + " • " + paidPower.toUpperCase() + " activated");
 }
 
 // Poll once per response interval. This endpoint uses a shared in-memory cursor,
@@ -1134,6 +1182,10 @@ async function pollYouTubeCommands() {
         for (const item of data.commands) {
             if (item && item.type === "free" && typeof item.command === "string") {
                 applyViewerCommand(item.command);
+            } else if (item && item.type === "superchat") {
+                applyPaidEvent(item);
+            } else if (item && item.type === "supersticker" && item.verified_event === true) {
+                showPowerMessage("Super Sticker received • no power assigned yet");
             }
         }
 
@@ -1152,87 +1204,33 @@ async function pollYouTubeCommands() {
 // ======================================================
 
 function update() {
-
-    if (paused || gameOver) {
-        return;
-    }
-
-    /*
-      Step 1: AI paddle movement.
-    */
+    if (paused || gameOver) return;
 
     updateAI();
+    updateLaserShots();
 
-    /*
-      Step 2: Save the old ball position.
-    */
+    // Iterate backwards because recovery may remove a ball from the array.
+    for (let i = balls.length - 1; i >= 0; i--) {
+        const activeBall = balls[i];
+        const oldX = activeBall.x;
+        const oldY = activeBall.y;
 
-    const oldX = ball.x;
-    const oldY = ball.y;
+        const newX = oldX + activeBall.vx * speedMode * powerSpeedFactor;
+        const newY = oldY + activeBall.vy * speedMode * powerSpeedFactor;
 
-    /*
-      Step 3: Calculate the proposed new position.
-    */
+        activeBall.x = newX;
+        activeBall.y = newY;
 
-    const newX = oldX + ball.vx * speedMode * powerSpeedFactor;
-    const newY = oldY + ball.vy * speedMode * powerSpeedFactor;
-
-    /*
-      Step 4: Move the ball.
-    */
-
-    ball.x = newX;
-    ball.y = newY;
-
-    /*
-      Step 5: Resolve wall collisions.
-
-      The movement is small enough that the normal
-      wall collision checks are sufficient.
-    */
-
-    handleWallCollisions();
-
-    /*
-      Step 6: Check the brick path.
-
-      Use the old and proposed positions so that
-      fast movement doesn't skip bricks.
-    */
-
-    handleBrickCollisions(
-        oldX,
-        oldY,
-        newX,
-        newY
-    );
-
-    /*
-      Step 7: Check the paddle collision.
-
-      If the ball was repositioned by a brick collision,
-      it can still collide with the paddle only when
-      moving downward.
-    */
-
-    handlePaddleCollision(oldY);
-
-    /*
-      Step 8: Recover missed balls automatically.
-    */
-
-    recoverBall();
-
-    /*
-      Step 9: Keep the score display synchronized.
-    */
+        handleWallCollisions(activeBall);
+        handleBrickCollisions(oldX, oldY, newX, newY, activeBall);
+        handlePaddleCollision(oldY, activeBall);
+        recoverBall(activeBall);
+    }
 
     scoreElement.textContent = score;
     levelElement.textContent = level;
-
     aiStatusElement.textContent = "ON";
 }
-
 
 // ======================================================
 // 15. DRAW BACKGROUND
@@ -1371,7 +1369,7 @@ function drawPaddle() {
 // 18. DRAW BALL
 // ======================================================
 
-function drawBall() {
+function drawBall(activeBall = ball) {
 
     /*
       Ball trail.
@@ -1384,9 +1382,9 @@ function drawBall() {
     ctx.beginPath();
 
     ctx.arc(
-        ball.x - ball.vx * 2,
-        ball.y - ball.vy * 2,
-        ball.r * 1.4,
+        activeBall.x - activeBall.vx * 2,
+        activeBall.y - activeBall.vy * 2,
+        activeBall.r * 1.4,
         0,
         Math.PI * 2
     );
@@ -1396,19 +1394,19 @@ function drawBall() {
     ctx.globalAlpha = 1;
 
     /*
-      Main ball.
+      Main activeBall.
     */
 
     ctx.shadowColor = "#47f5d0";
     ctx.shadowBlur = 18;
 
     const gradient = ctx.createRadialGradient(
-        ball.x - 2,
-        ball.y - 2,
+        activeBall.x - 2,
+        activeBall.y - 2,
         1,
-        ball.x,
-        ball.y,
-        ball.r
+        activeBall.x,
+        activeBall.y,
+        activeBall.r
     );
 
     gradient.addColorStop(0, "#ffffff");
@@ -1420,9 +1418,9 @@ function drawBall() {
     ctx.beginPath();
 
     ctx.arc(
-        ball.x,
-        ball.y,
-        ball.r,
+        activeBall.x,
+        activeBall.y,
+        activeBall.r,
         0,
         Math.PI * 2
     );
@@ -1445,7 +1443,7 @@ function drawGameInfo() {
     ctx.textAlign = "left";
 
     ctx.fillText(
-        "AI CONTROL ACTIVE",
+        "AI CONTROL ACTIVE • BALLS " + balls.length,
         18,
         H - 15
     );
@@ -1510,7 +1508,7 @@ function draw() {
 
     drawPaddle();
 
-    drawBall();
+    for (const activeBall of balls) drawBall(activeBall);
     drawLaserShots();
 
     drawGameInfo();
@@ -1610,6 +1608,11 @@ function restartGame() {
     powerSpeedFactor = 1;
     shieldCharges = 0;
     laserShots = [];
+    balls = [ball];
+    if (slowPowerTimer) {
+        clearTimeout(slowPowerTimer);
+        slowPowerTimer = null;
+    }
     if (bigPaddleTimer) {
         clearTimeout(bigPaddleTimer);
         bigPaddleTimer = null;
@@ -1732,8 +1735,8 @@ window.addEventListener(
 function initializeGame() {
 
     createBricks();
-
-    resetBall();
+    balls = [ball];
+    resetBall(ball);
 
     statusElement.textContent =
         "AI running automatically";
